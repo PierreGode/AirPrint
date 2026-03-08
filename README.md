@@ -4,7 +4,7 @@ AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waves
 
 ## Hardware
 
-- Raspberry Pi 4
+- Raspberry Pi 4 or Raspberry Pi 5
 - Waveshare 7.5" e-paper display (SPI)
 - 2x USB WiFi adapters with monitor mode support (`wlan1`, `wlan2`)
 - Built-in Pi WiFi (`wlan0`) for SSH/network access
@@ -39,10 +39,11 @@ sudo ./install.sh
 `install.sh` will:
 
 1. Install apt dependencies.
-2. Install Python dependencies from `requirements.txt` with `pip --break-system-packages` (`scapy`, `Pillow`, `RPi.GPIO`, `spidev`) plus Waveshare EPD lib.
-3. Copy `airprint.py` to `/opt/airprint`.
-4. Create `/usr/local/bin/airprint-monitor-mode` to force `wlan1`/`wlan2` to monitor mode.
-5. Install and start `airprint.service`.
+2. Install Python dependencies from `requirements.txt` with `pip --break-system-packages` (`scapy`, `Pillow`) plus Waveshare EPD lib.
+3. Install Raspberry Pi GPIO/SPI bindings from apt (`python3-rpi-lgpio` or `python3-rpi.gpio`, and `python3-spidev`) for better Raspberry Pi 5 compatibility.
+4. Copy `airprint.py` to `/opt/airprint`.
+5. Create `/usr/local/bin/airprint-monitor-mode` to force `wlan1`/`wlan2` to monitor mode.
+6. Install and start `airprint.service`.
 
 ## How it works
 

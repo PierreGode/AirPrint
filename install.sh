@@ -32,6 +32,8 @@ choose_package() {
 
 TIFF_PKG="$(choose_package libtiff5 libtiff6 libtiff-dev || true)"
 ATLAS_PKG="$(choose_package libatlas-base-dev libatlas-dev || true)"
+GPIO_PKG="$(choose_package python3-rpi-lgpio python3-rpi.gpio || true)"
+SPIDEV_PKG="$(choose_package python3-spidev || true)"
 
 OPTIONAL_PACKAGES=()
 if [[ -n "$TIFF_PKG" ]]; then
@@ -44,6 +46,18 @@ if [[ -n "$ATLAS_PKG" ]]; then
   OPTIONAL_PACKAGES+=("$ATLAS_PKG")
 else
   echo "Warning: no compatible ATLAS package found (tried libatlas-base-dev/libatlas-dev)."
+fi
+
+if [[ -n "$GPIO_PKG" ]]; then
+  OPTIONAL_PACKAGES+=("$GPIO_PKG")
+else
+  echo "Warning: no compatible Raspberry Pi GPIO package found (tried python3-rpi-lgpio/python3-rpi.gpio)."
+fi
+
+if [[ -n "$SPIDEV_PKG" ]]; then
+  OPTIONAL_PACKAGES+=("$SPIDEV_PKG")
+else
+  echo "Warning: python3-spidev package not found; pip install may be required on this distro."
 fi
 
 apt-get install -y \
