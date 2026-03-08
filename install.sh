@@ -19,10 +19,38 @@ fi
 
 echo "Installing apt dependencies..."
 apt-get update
+
+choose_package() {
+  for pkg in "$@"; do
+    if apt-cache show "$pkg" >/dev/null 2>&1; then
+      echo "$pkg"
+      return 0
+    fi
+  done
+  return 1
+}
+
+TIFF_PKG="$(choose_package libtiff5 libtiff6 libtiff-dev || true)"
+ATLAS_PKG="$(choose_package libatlas-base-dev libatlas-dev || true)"
+
+OPTIONAL_PACKAGES=()
+if [[ -n "$TIFF_PKG" ]]; then
+  OPTIONAL_PACKAGES+=("$TIFF_PKG")
+else
+  echo "Warning: no compatible TIFF package found (tried libtiff5/libtiff6/libtiff-dev)."
+fi
+
+if [[ -n "$ATLAS_PKG" ]]; then
+  OPTIONAL_PACKAGES+=("$ATLAS_PKG")
+else
+  echo "Warning: no compatible ATLAS package found (tried libatlas-base-dev/libatlas-dev)."
+fi
+
 apt-get install -y \
   python3 python3-pip python3-dev python3-pil \
-  libjpeg-dev zlib1g-dev libopenjp2-7 libtiff5 \
-  libatlas-base-dev libgpiod-dev git iw wireless-tools aircrack-ng
+  libjpeg-dev zlib1g-dev libopenjp2-7 \
+  libgpiod-dev git iw wireless-tools aircrack-ng \
+  "${OPTIONAL_PACKAGES[@]}"
 
 echo "Installing Python dependencies from requirements.txt..."
 python3 -m pip install --upgrade pip --break-system-packages
