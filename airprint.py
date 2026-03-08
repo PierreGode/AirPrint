@@ -38,14 +38,17 @@ class AirPrint:
         scan_seconds: int,
         state_ttl_seconds: int,
         output_path: Optional[Path],
+        epd_model: str,
     ) -> None:
         self.interface = interface
         self.refresh_seconds = refresh_seconds
         self.scan_seconds = scan_seconds
         self.state_ttl_seconds = state_ttl_seconds
         self.output_path = output_path
+        self.epd_model = epd_model
         self.devices: Dict[str, DeviceObservation] = {}
         self.running = True
+        self.epd: Optional[object] = None
 
     def stop(self, *_: object) -> None:
         logging.info("Shutting down AirPrint loop")
@@ -217,37 +220,66 @@ class AirPrint:
             logging.info("Saved rendered frame to %s", self.output_path)
             return
 
+        if self.epd is None:
+            self.epd = self.create_epd()
+            self.epd.init()
+
+        self.epd.display(self.epd.getbuffer(image))
+
+    def create_epd(self) -> object:
+        if self.epd_model == "v2":
+            from waveshare_epd import epd7in5_V2  # type: ignore
+
+            logging.debug("Using e-paper driver epd7in5_V2")
+            return epd7in5_V2.EPD()
+
+        if self.epd_model == "v1":
+            from waveshare_epd import epd7in5  # type: ignore
+
+            logging.debug("Using e-paper driver epd7in5")
+            return epd7in5.EPD()
+
         try:
             from waveshare_epd import epd7in5_V2  # type: ignore
 
-            epd = epd7in5_V2.EPD()
+            logging.debug("Auto-selected e-paper driver epd7in5_V2")
+            return epd7in5_V2.EPD()
         except Exception:
             from waveshare_epd import epd7in5  # type: ignore
 
-            epd = epd7in5.EPD()
+            logging.debug("Auto-selected e-paper driver epd7in5")
+            return epd7in5.EPD()
 
-        epd.init()
-        epd.display(epd.getbuffer(image))
-        epd.sleep()
+    def shutdown_display(self) -> None:
+        if self.epd is None:
+            return
+
+        try:
+            self.epd.sleep()
+        except Exception as exc:
+            logging.debug("Failed to put e-paper into sleep mode: %s", exc)
 
     def run(self) -> None:
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
 
-        while self.running:
-            started = time.time()
-            try:
-                observed = self.scan_wifi()
-                self.merge_devices(observed)
-                frame = self.render_image()
-                self.display_image(frame)
-                logging.info("Frame rendered with %d active devices", len(self.devices))
-            except Exception as exc:
-                logging.exception("AirPrint cycle failed: %s", exc)
+        try:
+            while self.running:
+                started = time.time()
+                try:
+                    observed = self.scan_wifi()
+                    self.merge_devices(observed)
+                    frame = self.render_image()
+                    self.display_image(frame)
+                    logging.info("Frame rendered with %d active devices", len(self.devices))
+                except Exception as exc:
+                    logging.exception("AirPrint cycle failed: %s", exc)
 
-            elapsed = time.time() - started
-            sleep_seconds = max(1, self.refresh_seconds - int(elapsed))
-            time.sleep(sleep_seconds)
+                elapsed = time.time() - started
+                sleep_seconds = max(1, self.refresh_seconds - int(elapsed))
+                time.sleep(sleep_seconds)
+        finally:
+            self.shutdown_display()
 
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
@@ -263,6 +295,12 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         help="Save frame to file instead of writing to the EPD",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logs")
+    parser.add_argument(
+        "--epd-model",
+        choices=("auto", "v2", "v1"),
+        default="auto",
+        help="Waveshare 7.5in driver selection; use v1 for older hardware",
+    )
     return parser.parse_args(list(argv))
 
 
@@ -279,6 +317,7 @@ def main(argv: Iterable[str]) -> int:
         scan_seconds=args.scan_time,
         state_ttl_seconds=args.state_ttl,
         output_path=args.output,
+        epd_model=args.epd_model,
     )
     app.run()
     return 0
