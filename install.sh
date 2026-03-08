@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="/opt/airprint"
 SERVICE_FILE="/etc/systemd/system/airprint.service"
+EPAPER_REPO_DIR="/tmp/e-Paper"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo ./install.sh"
@@ -19,19 +20,24 @@ fi
 echo "Installing apt dependencies..."
 apt-get update
 apt-get install -y \
-  python3 python3-pip python3-dev \
-  libatlas-base-dev git iw wireless-tools aircrack-ng
+  python3 python3-pip python3-dev python3-pil \
+  libjpeg-dev zlib1g-dev libopenjp2-7 libtiff5 \
+  libatlas-base-dev libgpiod-dev git iw wireless-tools aircrack-ng
 
 echo "Installing Python dependencies from requirements.txt..."
 python3 -m pip install --upgrade pip --break-system-packages
 python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 
-if [[ ! -d /tmp/e-Paper ]]; then
-  git clone https://github.com/waveshare/e-Paper.git /tmp/e-Paper
+echo "Installing Waveshare e-paper Python library..."
+if [[ ! -d "$EPAPER_REPO_DIR/.git" ]]; then
+  rm -rf "$EPAPER_REPO_DIR"
+  git clone --depth=1 --filter=blob:none --sparse https://github.com/waveshareteam/e-Paper.git "$EPAPER_REPO_DIR"
 else
-  git -C /tmp/e-Paper pull --ff-only
+  git -C "$EPAPER_REPO_DIR" pull --ff-only
 fi
-python3 -m pip install /tmp/e-Paper/RaspberryPi_JetsonNano/python/ --break-system-packages
+
+git -C "$EPAPER_REPO_DIR" sparse-checkout set RaspberryPi_JetsonNano/python
+python3 -m pip install "$EPAPER_REPO_DIR/RaspberryPi_JetsonNano/python" --break-system-packages
 
 mkdir -p "$PROJECT_DIR"
 cp "$SCRIPT_DIR/airprint.py" "$PROJECT_DIR/airprint.py"
