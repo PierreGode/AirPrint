@@ -11,24 +11,33 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+if [[ ! -f "$SCRIPT_DIR/requirements.txt" ]]; then
+  echo "requirements.txt not found in $SCRIPT_DIR"
+  exit 1
+fi
+
+echo "Installing apt dependencies..."
 apt-get update
 apt-get install -y \
-  python3 python3-pip python3-pil python3-spidev python3-dev \
+  python3 python3-pip python3-dev \
   libatlas-base-dev git iw wireless-tools aircrack-ng
 
-python3 -m pip install --upgrade pip
-python3 -m pip install --upgrade scapy RPi.GPIO spidev
+echo "Installing Python dependencies from requirements.txt..."
+python3 -m pip install --upgrade pip --break-system-packages
+python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 
 if [[ ! -d /tmp/e-Paper ]]; then
   git clone https://github.com/waveshare/e-Paper.git /tmp/e-Paper
+else
+  git -C /tmp/e-Paper pull --ff-only
 fi
-python3 -m pip install /tmp/e-Paper/RaspberryPi_JetsonNano/python/
+python3 -m pip install /tmp/e-Paper/RaspberryPi_JetsonNano/python/ --break-system-packages
 
 mkdir -p "$PROJECT_DIR"
 cp "$SCRIPT_DIR/airprint.py" "$PROJECT_DIR/airprint.py"
 chmod +x "$PROJECT_DIR/airprint.py"
 
-cat >/usr/local/bin/airprint-monitor-mode <<'EOF'
+cat >/usr/local/bin/airprint-monitor-mode <<'MONITOR_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -39,10 +48,10 @@ for IFACE in wlan1 wlan2; do
     ip link set "$IFACE" up
   fi
 done
-EOF
+MONITOR_EOF
 chmod +x /usr/local/bin/airprint-monitor-mode
 
-cat >"$SERVICE_FILE" <<EOF
+cat >"$SERVICE_FILE" <<SERVICE_EOF
 [Unit]
 Description=AirPrint WiFi e-paper visualizer
 After=network.target
@@ -58,7 +67,7 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE_EOF
 
 systemctl daemon-reload
 systemctl enable airprint.service
