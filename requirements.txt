@@ -1,0 +1,4 @@
+Pillow
+scapy
+RPi.GPIO
+spidev

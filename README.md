@@ -39,7 +39,7 @@ sudo ./install.sh
 `install.sh` will:
 
 1. Install apt dependencies.
-2. Install Python dependencies (`scapy`, `Pillow`, Waveshare EPD lib).
+2. Install Python dependencies from `requirements.txt` with `pip --break-system-packages` (`scapy`, `Pillow`, `RPi.GPIO`, `spidev`) plus Waveshare EPD lib.
 3. Copy `airprint.py` to `/opt/airprint`.
 4. Create `/usr/local/bin/airprint-monitor-mode` to force `wlan1`/`wlan2` to monitor mode.
 5. Install and start `airprint.service`.
