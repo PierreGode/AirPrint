@@ -299,11 +299,12 @@ def _is_random_mac(mac: str) -> bool:
 
 
 def oui_vendor(mac: str) -> str:
-    """Return short vendor name from MAC OUI prefix, or '' if unknown."""
+    """Return short vendor name from MAC OUI prefix."""
     if _is_random_mac(mac):
-        return "Random"
+        # Show last 4 chars so randomized devices are distinguishable
+        return "~" + mac[-5:].replace(":", "")
     prefix = mac[:8].lower()
-    return OUI_TABLE.get(prefix, "")
+    return OUI_TABLE.get(prefix, mac[-5:].replace(":", ""))
 
 
 # ---- Channel hopping ----
