@@ -141,7 +141,6 @@ class Handler(BaseHTTPRequestHandler):
             new_model = body["epd_model"]
             if new_model != app.epd_model and (new_model == "auto" or new_model in app.EPD_DRIVERS):
                 app.epd_model = new_model
-                # Force re-init of the display with the new driver
                 if app.epd is not None:
                     try:
                         app.epd.sleep()
@@ -210,11 +209,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
   }
   header h1 { font-size: 16px; color: #fff; font-weight: 600; }
   header .status { font-size: 12px; color: #666; }
-  header .status .dot { display: inline-block; width: 8px; height: 8px;
-    border-radius: 50%; background: #2a2; margin-right: 4px; vertical-align: middle; }
+  header .status .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; background: #2a2; margin-right: 4px; vertical-align: middle;
+  }
   .container { display: flex; gap: 0; min-height: calc(100vh - 49px); }
 
-  /* E-paper mirror panel */
   .epd-panel {
     flex: 0 0 auto; background: #111; border-right: 1px solid #222;
     display: flex; flex-direction: column; align-items: center;
@@ -223,28 +223,23 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .epd-frame {
     background: #d4d4d0; border-radius: 6px; padding: 10px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.6);
-    cursor: pointer;
-    position: relative;
-  }
-  .epd-frame::after {
-    content: attr(data-size);
-    position: absolute; bottom: -20px; right: 0;
-    font-size: 10px; color: #444;
   }
   .epd-frame img {
     display: block;
     image-rendering: crisp-edges;
     image-rendering: -webkit-crisp-edges;
     image-rendering: pixelated;
+    cursor: pointer;
     transition: all 0.2s ease;
   }
-  /* Size presets — applied via JS */
-  .epd-frame img.size-md { max-height: 300px; min-height: 200px; width: auto; }
-  .epd-frame img.size-lg { max-height: 500px; min-height: 350px; width: auto; }
-  .epd-frame img.size-xl { max-height: 800px; min-height: 500px; width: auto; }
-  .epd-label { font-size: 11px; color: #555; margin-top: 24px; text-align: center; }
+  .epd-frame img.size-md { height: 300px; width: auto; }
+  .epd-frame img.size-lg { height: 500px; width: auto; }
+  .epd-frame img.size-xl { height: 800px; width: auto; }
+  .epd-label {
+    font-size: 11px; color: #555; margin-top: 12px; text-align: center;
+    cursor: pointer;
+  }
 
-  /* Controls */
   .controls {
     display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap;
     justify-content: center;
@@ -259,7 +254,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .btn.danger { border-color: #522; color: #c66; }
   .btn.danger:hover { background: #2a1515; border-color: #844; }
 
-  /* Right sidebar */
   .sidebar {
     flex: 1; padding: 20px; overflow-y: auto;
     display: flex; flex-direction: column; gap: 16px;
@@ -268,36 +262,47 @@ HTML_PAGE = r"""<!DOCTYPE html>
     background: #111; border: 1px solid #222; border-radius: 6px;
     padding: 14px;
   }
-  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
-    color: #666; margin-bottom: 10px; }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: #666; margin-bottom: 10px;
+  }
   .setting-row {
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 0; border-bottom: 1px solid #1a1a1a;
+    gap: 12px;
   }
   .setting-row:last-child { border-bottom: none; }
-  .setting-row label { font-size: 13px; color: #aaa; }
-  .setting-row input, .setting-row select {
+  .setting-row label { font-size: 13px; color: #aaa; white-space: nowrap; }
+  .setting-row input {
     background: #0a0a0a; border: 1px solid #333; color: #e0e0e0;
     padding: 4px 8px; border-radius: 3px; font-family: inherit;
-    font-size: 13px; width: 100px; text-align: right;
+    font-size: 13px; width: 80px; text-align: right;
   }
-  .setting-row select { width: 140px; text-align: left; }
+  .setting-row select {
+    background: #0a0a0a; border: 1px solid #333; color: #e0e0e0;
+    padding: 4px 8px; border-radius: 3px; font-family: inherit;
+    font-size: 13px; width: 240px; text-align: left;
+    cursor: pointer;
+    -webkit-appearance: menulist;
+    appearance: menulist;
+  }
   .setting-row input:focus, .setting-row select:focus {
     outline: none; border-color: #555;
   }
 
-  /* Device list */
   .device-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .device-table th {
     text-align: left; color: #666; font-weight: 500; padding: 4px 8px;
     border-bottom: 1px solid #222;
   }
-  .device-table td { padding: 4px 8px; color: #aaa; border-bottom: 1px solid #151515; }
+  .device-table td {
+    padding: 4px 8px; color: #aaa; border-bottom: 1px solid #151515;
+    font-variant-numeric: tabular-nums;
+  }
   .device-table tr:hover td { color: #e0e0e0; background: #151515; }
   .kind-ap { color: #6a6; }
   .kind-device { color: #888; }
 
-  /* View tabs */
   .view-tabs { display: flex; gap: 0; }
   .view-tab {
     background: #0a0a0a; border: 1px solid #222; color: #666;
@@ -310,24 +315,37 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .view-tab.active { background: #1a1a1a; color: #fff; border-color: #444; }
   .view-tab:hover:not(.active) { color: #aaa; }
 
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #1a1a1a; border: 1px solid #444; color: #ccc;
+    padding: 8px 20px; border-radius: 4px; font-size: 12px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+
   @media (max-width: 700px) {
     .container { flex-direction: column; }
     .epd-panel { border-right: none; border-bottom: 1px solid #222; }
     .sidebar { padding: 12px; }
+    .setting-row select { width: 180px; }
   }
 </style>
 </head>
 <body>
 <header>
   <h1>AirPrint</h1>
-  <span class="status"><span class="dot" id="statusDot"></span><span id="statusText">connecting...</span></span>
+  <span class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">connecting...</span>
+  </span>
 </header>
 <div class="container">
   <div class="epd-panel">
-    <div class="epd-frame" id="epdFrame" data-size="lg" onclick="toggleSize()">
-      <img id="epdImg" class="size-lg" alt="e-paper display">
+    <div class="epd-frame">
+      <img id="epdImg" class="size-lg" alt="e-paper display" onclick="toggleSize()">
     </div>
-    <div class="epd-label" id="epdLabel">loading...</div>
+    <div class="epd-label" id="epdLabel" onclick="toggleSize()">loading...</div>
     <div class="controls">
       <button class="btn" onclick="doAction('scan')">Scan Now</button>
       <button class="btn" onclick="doAction('flip')">Flip</button>
@@ -344,7 +362,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <h2>Settings</h2>
       <div class="setting-row">
         <label>EPD Model</label>
-        <select id="epdModel"><option value="auto">Auto-detect</option></select>
+        <select id="epdModel"></select>
       </div>
       <div class="setting-row">
         <label>Refresh interval (s)</label>
@@ -375,12 +393,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </div>
   </div>
 </div>
+<div class="toast" id="toast"></div>
 <script>
 const SIZES = ['md', 'lg', 'xl'];
-let sizeIdx = 1;  // start at lg
+const SIZE_LABELS = ['medium', 'large', 'x-large'];
+let sizeIdx = 1;
 let modelsPopulated = false;
+let userInteracting = false;
 
-// Friendly display names for EPD models
 const EPD_LABELS = {
   'epd2in13':    '2.13" e-Paper (122x250)',
   'epd2in13_V2': '2.13" e-Paper V2 (122x250)',
@@ -394,62 +414,105 @@ const EPD_LABELS = {
   'epd7in5_V2':  '7.5" e-Paper V2 (800x480)',
 };
 
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
 function toggleSize() {
   sizeIdx = (sizeIdx + 1) % SIZES.length;
-  const img = document.getElementById('epdImg');
-  img.className = 'size-' + SIZES[sizeIdx];
-  document.getElementById('epdFrame').dataset.size = SIZES[sizeIdx];
+  document.getElementById('epdImg').className = 'size-' + SIZES[sizeIdx];
+  toast('Display size: ' + SIZE_LABELS[sizeIdx]);
 }
+
+// Track focus on inputs/selects to pause overwriting values
+document.addEventListener('focusin', function(e) {
+  if (e.target.matches('.setting-row input, .setting-row select')) {
+    userInteracting = true;
+  }
+});
+document.addEventListener('focusout', function(e) {
+  if (e.target.matches('.setting-row input, .setting-row select')) {
+    userInteracting = false;
+  }
+});
 
 async function fetchState() {
   try {
     const r = await fetch('/api/state');
     const s = await r.json();
+
     document.getElementById('statusDot').style.background = '#2a2';
     document.getElementById('statusText').textContent =
-      `${s.device_count} devices | frame #${s.frame_count} | ${s.display_size[0]}x${s.display_size[1]}`;
+      s.device_count + ' devices | frame #' + s.frame_count +
+      ' | ' + s.display_size[0] + 'x' + s.display_size[1];
     document.getElementById('epdLabel').textContent =
-      `${s.epd_model} (${s.display_size[0]}x${s.display_size[1]}) — click display to resize`;
+      (EPD_LABELS[s.epd_model] || s.epd_model) +
+      ' — click to resize (' + SIZE_LABELS[sizeIdx] + ')';
     document.getElementById('devCount').textContent = s.device_count;
-    document.getElementById('setRefresh').value = s.refresh_seconds;
-    document.getElementById('setScan').value = s.scan_seconds;
-    document.getElementById('setTTL').value = s.state_ttl_seconds;
-    document.getElementById('setFullRefresh').value = s.full_refresh_interval;
 
-    // Update image from base64
+    // Update image
     if (s.image) {
       document.getElementById('epdImg').src = 'data:image/png;base64,' + s.image;
     }
 
-    // EPD model selector — populate once, then just update selection
+    // Populate EPD model dropdown once
     const sel = document.getElementById('epdModel');
-    if (!modelsPopulated) {
+    if (!modelsPopulated && s.supported_models) {
       sel.innerHTML = '';
-      const autoOpt = document.createElement('option');
-      autoOpt.value = 'auto'; autoOpt.textContent = 'Auto-detect';
-      sel.appendChild(autoOpt);
-      for (const m of s.supported_models) {
-        const o = document.createElement('option');
-        o.value = m;
-        o.textContent = EPD_LABELS[m] || m;
-        sel.appendChild(o);
+      var opt = document.createElement('option');
+      opt.value = 'auto';
+      opt.textContent = 'Auto-detect';
+      sel.appendChild(opt);
+      for (var i = 0; i < s.supported_models.length; i++) {
+        var m = s.supported_models[i];
+        opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = EPD_LABELS[m] || m;
+        sel.appendChild(opt);
       }
       modelsPopulated = true;
     }
-    sel.value = s.epd_model;
+
+    // Only update form values when user is NOT interacting
+    if (!userInteracting) {
+      sel.value = s.epd_model;
+      document.getElementById('setRefresh').value = s.refresh_seconds;
+      document.getElementById('setScan').value = s.scan_seconds;
+      document.getElementById('setTTL').value = s.state_ttl_seconds;
+      document.getElementById('setFullRefresh').value = s.full_refresh_interval;
+    }
 
     // View tabs
-    document.querySelectorAll('.view-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.view === s.current_view);
-    });
+    var tabs = document.querySelectorAll('.view-tab');
+    for (var j = 0; j < tabs.length; j++) {
+      var active = tabs[j].getAttribute('data-view') === s.current_view;
+      if (active) tabs[j].classList.add('active');
+      else tabs[j].classList.remove('active');
+    }
 
-    // Device table
-    const body = document.getElementById('devBody');
-    const sorted = s.devices.sort((a, b) => b.rssi - a.rssi);
-    body.innerHTML = sorted.map(d =>
-      `<tr><td>${d.mac}</td><td>${d.rssi}</td><td>${d.channel}</td>` +
-      `<td class="kind-${d.kind}">${d.kind}</td></tr>`
-    ).join('');
+    // Device table — escaped
+    var tbody = document.getElementById('devBody');
+    var devs = s.devices.slice().sort(function(a, b) { return b.rssi - a.rssi; });
+    var rows = '';
+    for (var k = 0; k < devs.length; k++) {
+      var d = devs[k];
+      rows += '<tr>' +
+        '<td>' + esc(d.mac) + '</td>' +
+        '<td>' + d.rssi + '</td>' +
+        '<td>' + d.channel + '</td>' +
+        '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = rows;
   } catch (e) {
     document.getElementById('statusDot').style.background = '#a22';
     document.getElementById('statusText').textContent = 'disconnected';
@@ -457,39 +520,55 @@ async function fetchState() {
 }
 
 async function doAction(action) {
-  await fetch('/api/action', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action})
-  });
+  try {
+    await fetch('/api/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: action})
+    });
+    toast('Action: ' + action);
+  } catch (e) {
+    toast('Failed: ' + action);
+  }
   setTimeout(fetchState, 500);
 }
 
 async function setView(view) {
-  await fetch('/api/action', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'set_view', view})
-  });
+  try {
+    await fetch('/api/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'set_view', view: view})
+    });
+  } catch (e) {
+    toast('Failed to switch view');
+  }
   setTimeout(fetchState, 500);
 }
 
 async function saveSettings() {
-  const r = await fetch('/api/settings', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      epd_model: document.getElementById('epdModel').value,
-      refresh_seconds: parseInt(document.getElementById('setRefresh').value),
-      scan_seconds: parseInt(document.getElementById('setScan').value),
-      state_ttl_seconds: parseInt(document.getElementById('setTTL').value),
-      full_refresh_interval: parseInt(document.getElementById('setFullRefresh').value),
-    })
-  });
-  const result = await r.json();
-  if (result.restart_required) {
-    document.getElementById('statusText').textContent = 'EPD model changed — reinitializing display...';
-    document.getElementById('statusDot').style.background = '#aa2';
+  try {
+    var r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        epd_model: document.getElementById('epdModel').value,
+        refresh_seconds: parseInt(document.getElementById('setRefresh').value),
+        scan_seconds: parseInt(document.getElementById('setScan').value),
+        state_ttl_seconds: parseInt(document.getElementById('setTTL').value),
+        full_refresh_interval: parseInt(document.getElementById('setFullRefresh').value)
+      })
+    });
+    var result = await r.json();
+    if (result.restart_required) {
+      toast('EPD model changed — reinitializing...');
+      document.getElementById('statusDot').style.background = '#aa2';
+      document.getElementById('statusText').textContent = 'reinitializing display...';
+    } else {
+      toast('Settings applied');
+    }
+  } catch (e) {
+    toast('Failed to save settings');
   }
   setTimeout(fetchState, 2000);
 }
