@@ -61,6 +61,7 @@ sudo ./install.sh
   - each device gets a stable angle based on its MAC address
   - recent devices have bigger dots
 - Automatically sizes the image to match the display resolution.
+- Uses partial refresh (no full-screen flash) on supported displays, with periodic full refresh to clear ghosting.
 - Refreshes every 30 seconds.
 - Pushes frame to Waveshare EPD.
 
@@ -94,11 +95,14 @@ sudo python3 airprint.py --interface wlan1 --epd-model epd2in7_V2 --web-port 500
 
 Then open `http://<pi-ip>:5007` in a browser. The web UI provides:
 
-- **Live e-paper mirror** — see what the display shows without walking to it.
+- **Live e-paper mirror** — pixel-perfect replica of the display, click to cycle size (medium / large / x-large).
+- **EPD model selector** — switch between all supported e-paper displays live without restarting the service.
 - **View switching** — toggle between radar, list, and stats views.
 - **Controls** — force scan, flip screen, clear display & exit.
-- **Settings** — adjust refresh interval, scan duration, device TTL, and full-refresh frequency live.
-- **Device table** — full list of detected devices with MAC, RSSI, channel, and type.
+- **Settings** — adjust refresh interval, scan duration, device TTL, and full-refresh frequency. Changes apply immediately.
+- **Device table** — full list of detected devices sorted by signal strength with MAC, RSSI, channel, and type.
+
+The web UI is enabled by default when installed via `install.sh` (port 5007). No extra dependencies required.
 
 ## Buttons (2.7" HAT)
 
