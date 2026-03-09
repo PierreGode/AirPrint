@@ -75,7 +75,6 @@ apt-get install -y \
   "${OPTIONAL_PACKAGES[@]}"
 
 echo "Installing Python dependencies from requirements.txt..."
-python3 -m pip install --upgrade pip --break-system-packages
 python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 
 echo "Installing Waveshare e-paper Python library..."
