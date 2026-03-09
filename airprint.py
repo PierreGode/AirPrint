@@ -771,29 +771,62 @@ class AirPrint:
         draw.text((width - len(count) * 6 - 4, height - 14), count, fill=0, font=font)
         return image
 
+    @staticmethod
+    def _signal_bar(rssi: int, bar_width: int = 5) -> str:
+        """Return a text signal bar like ▂▄▆█ based on RSSI."""
+        bars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+        clamped = max(-90, min(-30, rssi))
+        idx = int((clamped + 90) / 60 * (len(bars) - 1))
+        return bars[idx]
+
     def render_list(self, width: int, height: int) -> Image.Image:
         image = Image.new("1", (width, height), 255)
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
 
-        draw.line((0, 0, width, 0), fill=0)
-
-        sorted_devs = sorted(self.devices.values(), key=lambda d: d.rssi, reverse=True)
-        y = 4
-        line_h = 12
-        max_lines = (height - 20) // line_h
         max_chars = width // 6
-        for dev in sorted_devs[:max_lines]:
-            label = dev.vendor if dev.vendor else dev.mac
-            kind_marker = "*" if dev.kind == "ap" else " "
-            name = dev.ssid if dev.ssid else ""
-            if not name and dev.probed_ssids:
-                name = ">" + dev.probed_ssids[0]
-            rssi_ch = f"{dev.rssi:>4} {dev.channel:>2}"
-            if name:
-                line = f"{label}{kind_marker}{rssi_ch} {name}"
-            else:
-                line = f"{label}{kind_marker}{rssi_ch}"
+        line_h = 12
+        now = time.time()
+        y = 2
+
+        aps = sorted(
+            [d for d in self.devices.values() if d.kind == "ap"],
+            key=lambda d: d.rssi, reverse=True,
+        )
+        clients = sorted(
+            [d for d in self.devices.values() if d.kind != "ap"],
+            key=lambda d: d.rssi, reverse=True,
+        )
+
+        # -- APs section --
+        ap_label = f"-- APs ({len(aps)}) --"
+        draw.text((4, y), ap_label[:max_chars], fill=0, font=font)
+        y += line_h
+
+        max_ap_lines = min(len(aps), (height - 30) // line_h // 2)
+        for dev in aps[:max_ap_lines]:
+            name = dev.ssid if dev.ssid else dev.mac[-8:]
+            line = f"{dev.rssi:>3} ch{dev.channel:<2} {name}"
+            draw.text((4, y), line[:max_chars], fill=0, font=font)
+            y += line_h
+
+        # -- Clients section --
+        y += 2
+        cl_label = f"-- Clients ({len(clients)}) --"
+        draw.text((4, y), cl_label[:max_chars], fill=0, font=font)
+        y += line_h
+
+        remaining_lines = (height - 18 - y) // line_h
+        for dev in clients[:remaining_lines]:
+            label = dev.vendor if dev.vendor else dev.mac[-8:]
+            probe = ""
+            if dev.probed_ssids:
+                probe = " >" + dev.probed_ssids[0][:8]
+            age = now - dev.last_seen
+            age_str = ""
+            if age > 60:
+                age_str = f" {int(age // 60)}m"
+            line = f"{dev.rssi:>3} {label}{probe}{age_str}"
             draw.text((4, y), line[:max_chars], fill=0, font=font)
             y += line_h
 
@@ -808,6 +841,7 @@ class AirPrint:
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
 
+        max_chars = width // 6
         total = len(self.devices)
         aps = sum(1 for d in self.devices.values() if d.kind == "ap")
         clients = total - aps
@@ -815,41 +849,62 @@ class AirPrint:
         channels: Dict[int, int] = {}
         rssi_values: list[int] = []
         vendors: Dict[str, int] = {}
+        all_probes: Dict[str, int] = {}
         for dev in self.devices.values():
             channels[dev.channel] = channels.get(dev.channel, 0) + 1
             rssi_values.append(dev.rssi)
-            v = dev.vendor or "?"
+            v = dev.vendor if dev.vendor else "?"
             vendors[v] = vendors.get(v, 0) + 1
+            for ssid in dev.probed_ssids:
+                all_probes[ssid] = all_probes.get(ssid, 0) + 1
 
-        y = 4
-        line_h = 13
-        draw.text((4, y), f"Total:   {total}", fill=0, font=font); y += line_h
-        draw.text((4, y), f"APs:     {aps}", fill=0, font=font); y += line_h
-        draw.text((4, y), f"Clients: {clients}", fill=0, font=font); y += line_h
+        y = 2
+        line_h = 12
 
+        # Summary line
+        draw.text((4, y), f"{total} dev  {aps} AP  {clients} cli", fill=0, font=font)
+        y += line_h
+
+        # RSSI
         if rssi_values:
-            avg_rssi = sum(rssi_values) // len(rssi_values)
-            draw.text((4, y), f"RSSI:{min(rssi_values)}/{avg_rssi}/{max(rssi_values)}", fill=0, font=font)
+            lo, hi = min(rssi_values), max(rssi_values)
+            avg = sum(rssi_values) // len(rssi_values)
+            draw.text((4, y), f"dBm {lo}/{avg}/{hi}", fill=0, font=font)
             y += line_h
 
-        # Top vendors
-        if vendors:
-            top_v = sorted(vendors.items(), key=lambda kv: kv[1], reverse=True)[:3]
-            vstr = " ".join(f"{v}:{c}" for v, c in top_v)
-            draw.text((4, y), vstr[:width // 6], fill=0, font=font); y += line_h
-
-        # Top channels
+        # Channel bar chart
+        y += 2
         if channels:
-            top_ch = sorted(channels.items(), key=lambda kv: kv[1], reverse=True)[:4]
-            chstr = " ".join(f"ch{ch}:{cnt}" for ch, cnt in top_ch)
-            draw.text((4, y), chstr[:width // 6], fill=0, font=font); y += line_h
+            draw.text((4, y), "Channels:", fill=0, font=font)
+            y += line_h
+            top_ch = sorted(channels.items(), key=lambda kv: kv[1], reverse=True)[:6]
+            max_count = max(c for _, c in top_ch)
+            bar_max = width - 50
+            for ch, cnt in top_ch:
+                label = f"{ch:>3}"
+                draw.text((4, y), label, fill=0, font=font)
+                bar_w = max(1, int(cnt / max_count * bar_max))
+                draw.rectangle((28, y + 1, 28 + bar_w, y + line_h - 3), fill=0)
+                draw.text((30 + bar_w, y), str(cnt), fill=0, font=font)
+                y += line_h
 
-        # Sparkline: device count over time
-        if len(self._count_history) >= 2:
-            y += 4
-            draw.text((4, y), "Activity:", fill=0, font=font); y += 12
-            self._draw_sparkline(draw, 4, y, width - 8, 20, self._count_history)
-            y += 24
+        # Probed SSIDs — the interesting intel
+        y += 2
+        if all_probes and y < height - 40:
+            draw.text((4, y), "Probed SSIDs:", fill=0, font=font)
+            y += line_h
+            top_probes = sorted(all_probes.items(), key=lambda kv: kv[1], reverse=True)
+            remaining = (height - 18 - y) // line_h
+            for ssid, cnt in top_probes[:remaining]:
+                line = f" {cnt}x {ssid}"
+                draw.text((4, y), line[:max_chars], fill=0, font=font)
+                y += line_h
+
+        # Activity sparkline at the bottom
+        if len(self._count_history) >= 3:
+            spark_h = 16
+            spark_y = height - 16 - spark_h
+            self._draw_sparkline(draw, 4, spark_y, width - 8, spark_h, self._count_history)
 
         stamp = datetime.now().strftime("%H:%M")
         draw.text((4, height - 14), stamp, fill=0, font=font)
@@ -857,11 +912,9 @@ class AirPrint:
 
     @staticmethod
     def _draw_sparkline(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, h: int, data: List[int]) -> None:
-        """Draw a small line graph."""
         if not data:
             return
-        lo = min(data)
-        hi = max(data)
+        lo, hi = min(data), max(data)
         span = hi - lo if hi != lo else 1
         n = len(data)
         step = max(1, w / max(n - 1, 1))
@@ -872,7 +925,6 @@ class AirPrint:
             points.append((px, py))
         if len(points) >= 2:
             draw.line(points, fill=0, width=1)
-        # Draw baseline
         draw.line((x, y + h, x + w, y + h), fill=0, width=1)
 
     @staticmethod
