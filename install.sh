@@ -22,7 +22,8 @@ apt-get update
 
 choose_package() {
   for pkg in "$@"; do
-    if apt-cache show "$pkg" >/dev/null 2>&1; then
+    if apt-cache policy "$pkg" 2>/dev/null | grep -q 'Candidate:' && \
+       ! apt-cache policy "$pkg" 2>/dev/null | grep -q 'Candidate: (none)'; then
       echo "$pkg"
       return 0
     fi
@@ -31,7 +32,7 @@ choose_package() {
 }
 
 TIFF_PKG="$(choose_package libtiff5 libtiff6 libtiff-dev || true)"
-ATLAS_PKG="$(choose_package libatlas-base-dev libatlas-dev || true)"
+ATLAS_PKG="$(choose_package libatlas-base-dev libatlas-dev libopenblas-dev || true)"
 GPIO_PKG="$(choose_package python3-rpi-lgpio python3-rpi.gpio || true)"
 SPIDEV_PKG="$(choose_package python3-spidev || true)"
 
