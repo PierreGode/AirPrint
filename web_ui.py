@@ -135,6 +135,25 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length)) if length else {}
 
+        restart_required = False
+
+        if "epd_model" in body:
+            new_model = body["epd_model"]
+            if new_model != app.epd_model and (new_model == "auto" or new_model in app.EPD_DRIVERS):
+                app.epd_model = new_model
+                # Force re-init of the display with the new driver
+                if app.epd is not None:
+                    try:
+                        app.epd.sleep()
+                    except Exception:
+                        pass
+                    app.epd = None
+                app._partial_supported = False
+                app._frame_count = 0
+                app.redraw_needed = True
+                restart_required = True
+                logging.info("EPD model changed to %s via web UI", new_model)
+
         if "refresh_seconds" in body:
             app.refresh_seconds = max(10, int(body["refresh_seconds"]))
         if "scan_seconds" in body:
@@ -144,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
         if "full_refresh_interval" in body:
             app._full_refresh_interval = max(1, int(body["full_refresh_interval"]))
 
-        self._json_response(200, {"ok": True})
+        self._json_response(200, {"ok": True, "restart_required": restart_required})
 
     def _json_response(self, code: int, obj: dict) -> None:
         body = json.dumps(obj).encode()
@@ -325,7 +344,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <h2>Settings</h2>
       <div class="setting-row">
         <label>EPD Model</label>
-        <select id="epdModel" disabled><option>-</option></select>
+        <select id="epdModel"><option value="auto">Auto-detect</option></select>
       </div>
       <div class="setting-row">
         <label>Refresh interval (s)</label>
@@ -359,6 +378,21 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <script>
 const SIZES = ['md', 'lg', 'xl'];
 let sizeIdx = 1;  // start at lg
+let modelsPopulated = false;
+
+// Friendly display names for EPD models
+const EPD_LABELS = {
+  'epd2in13':    '2.13" e-Paper (122x250)',
+  'epd2in13_V2': '2.13" e-Paper V2 (122x250)',
+  'epd2in13_V3': '2.13" e-Paper V3 (122x250)',
+  'epd2in13_V4': '2.13" e-Paper V4 (122x250)',
+  'epd2in7':     '2.7" e-Paper (176x264)',
+  'epd2in7_V2':  '2.7" e-Paper V2 (176x264)',
+  'epd2in9_V2':  '2.9" e-Paper V2 (128x296)',
+  'epd3in7':     '3.7" e-Paper (280x480)',
+  'epd7in5':     '7.5" e-Paper (800x480)',
+  'epd7in5_V2':  '7.5" e-Paper V2 (800x480)',
+};
 
 function toggleSize() {
   sizeIdx = (sizeIdx + 1) % SIZES.length;
@@ -387,17 +421,22 @@ async function fetchState() {
       document.getElementById('epdImg').src = 'data:image/png;base64,' + s.image;
     }
 
-    // EPD model selector
+    // EPD model selector — populate once, then just update selection
     const sel = document.getElementById('epdModel');
-    if (sel.options.length <= 1) {
+    if (!modelsPopulated) {
       sel.innerHTML = '';
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto'; autoOpt.textContent = 'Auto-detect';
+      sel.appendChild(autoOpt);
       for (const m of s.supported_models) {
         const o = document.createElement('option');
-        o.value = m; o.textContent = m;
-        if (m === s.epd_model) o.selected = true;
+        o.value = m;
+        o.textContent = EPD_LABELS[m] || m;
         sel.appendChild(o);
       }
+      modelsPopulated = true;
     }
+    sel.value = s.epd_model;
 
     // View tabs
     document.querySelectorAll('.view-tab').forEach(t => {
@@ -436,17 +475,23 @@ async function setView(view) {
 }
 
 async function saveSettings() {
-  await fetch('/api/settings', {
+  const r = await fetch('/api/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      epd_model: document.getElementById('epdModel').value,
       refresh_seconds: parseInt(document.getElementById('setRefresh').value),
       scan_seconds: parseInt(document.getElementById('setScan').value),
       state_ttl_seconds: parseInt(document.getElementById('setTTL').value),
       full_refresh_interval: parseInt(document.getElementById('setFullRefresh').value),
     })
   });
-  fetchState();
+  const result = await r.json();
+  if (result.restart_required) {
+    document.getElementById('statusText').textContent = 'EPD model changed — reinitializing display...';
+    document.getElementById('statusDot').style.background = '#aa2';
+  }
+  setTimeout(fetchState, 2000);
 }
 
 fetchState();
