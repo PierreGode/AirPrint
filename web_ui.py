@@ -527,7 +527,7 @@ async function fetchState() {
       var trend = d.trend || 0;
       var trendIcon = trend > 0.3 ? '&uarr;' : (trend < -0.3 ? '&darr;' : '&ndash;');
       var trendColor = trend > 0.3 ? '#6a6' : (trend < -0.3 ? '#a66' : '#666');
-      var vendorLabel = d.vendor ? esc(d.vendor) : esc(d.mac.slice(-8));
+      var vendorLabel = d.vendor ? esc(d.vendor) : esc(d.mac);
       var kindDot = d.kind === 'ap' ? '<span style="color:#6a6">&#9632;</span>' : '<span style="color:#888">&#9679;</span>';
       var name = d.ssid ? esc(d.ssid) : (d.probed_ssids && d.probed_ssids.length ? '<span style="color:#666">' + esc(d.probed_ssids[0]) + '</span>' : '');
       if (s.dual_antenna) {

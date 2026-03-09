@@ -299,12 +299,10 @@ def _is_random_mac(mac: str) -> bool:
 
 
 def oui_vendor(mac: str) -> str:
-    """Return short vendor name from MAC OUI prefix."""
+    """Return short vendor name from MAC OUI prefix, or empty string."""
     if _is_random_mac(mac):
-        # Show last 4 chars so randomized devices are distinguishable
-        return "~" + mac[-5:].replace(":", "")
-    prefix = mac[:8].lower()
-    return OUI_TABLE.get(prefix, mac[-5:].replace(":", ""))
+        return ""
+    return OUI_TABLE.get(mac[:8].lower(), "")
 
 
 # ---- Channel hopping ----
@@ -735,7 +733,9 @@ class AirPrint:
         max_radius = min(width, height) * 0.45
 
         self.draw_rings(draw, center, max_radius)
-        draw.ellipse((center[0] - 6, center[1] - 6, center[0] + 6, center[1] + 6), fill=0)
+        # Center crosshair
+        draw.line((center[0] - 6, center[1], center[0] + 6, center[1]), fill=0, width=1)
+        draw.line((center[0], center[1] - 6, center[0], center[1] + 6), fill=0, width=1)
 
         now = time.time()
         for mac, device in self.devices.items():
@@ -776,22 +776,24 @@ class AirPrint:
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
 
-        draw.text((4, 2), "VENDOR   RSSI Ch NAME", fill=0, font=font)
-        draw.line((0, 14, width, 14), fill=0)
+        draw.line((0, 0, width, 0), fill=0)
 
         sorted_devs = sorted(self.devices.values(), key=lambda d: d.rssi, reverse=True)
-        y = 18
+        y = 4
         line_h = 12
-        max_lines = (height - 32) // line_h
+        max_lines = (height - 20) // line_h
+        max_chars = width // 6
         for dev in sorted_devs[:max_lines]:
-            vendor = dev.vendor[:8] if dev.vendor else dev.mac[-8:]
+            label = dev.vendor if dev.vendor else dev.mac
             kind_marker = "*" if dev.kind == "ap" else " "
-            name = dev.ssid[:8] if dev.ssid else ""
+            name = dev.ssid if dev.ssid else ""
             if not name and dev.probed_ssids:
-                name = ">" + dev.probed_ssids[0][:7]
-            line = f"{vendor:<8}{kind_marker}{dev.rssi:>4} {dev.channel:>2} {name}"
-            # Truncate to fit display width
-            max_chars = width // 6
+                name = ">" + dev.probed_ssids[0]
+            rssi_ch = f"{dev.rssi:>4} {dev.channel:>2}"
+            if name:
+                line = f"{label}{kind_marker}{rssi_ch} {name}"
+            else:
+                line = f"{label}{kind_marker}{rssi_ch}"
             draw.text((4, y), line[:max_chars], fill=0, font=font)
             y += line_h
 
