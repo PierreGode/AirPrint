@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import logging
@@ -17,16 +18,33 @@ _app: AirPrint | None = None
 VIEW_NAMES = ["radar", "list", "stats"]
 
 
+def _frame_to_base64(app: AirPrint | None) -> str:
+    """Return the current e-paper frame as a base64-encoded PNG string."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    if app is not None and app.last_frame is not None:
+        img = app.last_frame.convert("L")
+    else:
+        w, h = (176, 264) if app is None else app.get_display_size()
+        img = Image.new("L", (w, h), 255)
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default()
+        draw.text((w // 2 - 40, h // 2 - 6), "waiting...", fill=0, font=font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
         logging.debug("web: %s", fmt % args)
 
     def do_GET(self) -> None:
-        if self.path == "/":
+        path = self.path.split("?")[0]
+        if path == "/":
             self._serve_html()
-        elif self.path == "/frame.png":
-            self._serve_frame()
-        elif self.path == "/api/state":
+        elif path == "/api/state":
             self._serve_state()
         else:
             self.send_error(404)
@@ -38,22 +56,6 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_settings()
         else:
             self.send_error(404)
-
-    def _serve_frame(self) -> None:
-        app = _app
-        if app is None or app.last_frame is None:
-            self.send_error(204, "No frame yet")
-            return
-        buf = io.BytesIO()
-        img = app.last_frame.convert("L")
-        img.save(buf, format="PNG")
-        data = buf.getvalue()
-        self.send_response(200)
-        self.send_header("Content-Type", "image/png")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(data)
 
     def _serve_state(self) -> None:
         app = _app
@@ -71,6 +73,7 @@ class Handler(BaseHTTPRequestHandler):
                 "last_seen": d.last_seen,
             })
         state = {
+            "image": _frame_to_base64(app),
             "epd_model": app.epd_model,
             "display_size": [w, h],
             "supported_models": sorted(app.EPD_DRIVERS.keys()),
@@ -199,13 +202,28 @@ HTML_PAGE = r"""<!DOCTYPE html>
     padding: 20px;
   }
   .epd-frame {
-    background: #fff; border-radius: 4px; padding: 8px;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+    background: #d4d4d0; border-radius: 6px; padding: 10px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    cursor: pointer;
+    position: relative;
+  }
+  .epd-frame::after {
+    content: attr(data-size);
+    position: absolute; bottom: -20px; right: 0;
+    font-size: 10px; color: #444;
   }
   .epd-frame img {
-    display: block; image-rendering: pixelated;
+    display: block;
+    image-rendering: crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    transition: all 0.2s ease;
   }
-  .epd-label { font-size: 11px; color: #555; margin-top: 8px; text-align: center; }
+  /* Size presets — applied via JS */
+  .epd-frame img.size-md { max-height: 300px; min-height: 200px; width: auto; }
+  .epd-frame img.size-lg { max-height: 500px; min-height: 350px; width: auto; }
+  .epd-frame img.size-xl { max-height: 800px; min-height: 500px; width: auto; }
+  .epd-label { font-size: 11px; color: #555; margin-top: 24px; text-align: center; }
 
   /* Controls */
   .controls {
@@ -287,8 +305,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </header>
 <div class="container">
   <div class="epd-panel">
-    <div class="epd-frame">
-      <img id="epdImg" src="/frame.png" alt="e-paper">
+    <div class="epd-frame" id="epdFrame" data-size="lg" onclick="toggleSize()">
+      <img id="epdImg" class="size-lg" alt="e-paper display">
     </div>
     <div class="epd-label" id="epdLabel">loading...</div>
     <div class="controls">
@@ -339,7 +357,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
   </div>
 </div>
 <script>
-let refreshTimer;
+const SIZES = ['md', 'lg', 'xl'];
+let sizeIdx = 1;  // start at lg
+
+function toggleSize() {
+  sizeIdx = (sizeIdx + 1) % SIZES.length;
+  const img = document.getElementById('epdImg');
+  img.className = 'size-' + SIZES[sizeIdx];
+  document.getElementById('epdFrame').dataset.size = SIZES[sizeIdx];
+}
 
 async function fetchState() {
   try {
@@ -349,12 +375,17 @@ async function fetchState() {
     document.getElementById('statusText').textContent =
       `${s.device_count} devices | frame #${s.frame_count} | ${s.display_size[0]}x${s.display_size[1]}`;
     document.getElementById('epdLabel').textContent =
-      `${s.epd_model} (${s.display_size[0]}x${s.display_size[1]})`;
+      `${s.epd_model} (${s.display_size[0]}x${s.display_size[1]}) — click display to resize`;
     document.getElementById('devCount').textContent = s.device_count;
     document.getElementById('setRefresh').value = s.refresh_seconds;
     document.getElementById('setScan').value = s.scan_seconds;
     document.getElementById('setTTL').value = s.state_ttl_seconds;
     document.getElementById('setFullRefresh').value = s.full_refresh_interval;
+
+    // Update image from base64
+    if (s.image) {
+      document.getElementById('epdImg').src = 'data:image/png;base64,' + s.image;
+    }
 
     // EPD model selector
     const sel = document.getElementById('epdModel');
@@ -380,9 +411,6 @@ async function fetchState() {
       `<tr><td>${d.mac}</td><td>${d.rssi}</td><td>${d.channel}</td>` +
       `<td class="kind-${d.kind}">${d.kind}</td></tr>`
     ).join('');
-
-    // Refresh image
-    document.getElementById('epdImg').src = '/frame.png?' + Date.now();
   } catch (e) {
     document.getElementById('statusDot').style.background = '#a22';
     document.getElementById('statusText').textContent = 'disconnected';
@@ -422,7 +450,7 @@ async function saveSettings() {
 }
 
 fetchState();
-refreshTimer = setInterval(fetchState, 5000);
+setInterval(fetchState, 5000);
 </script>
 </body>
 </html>
