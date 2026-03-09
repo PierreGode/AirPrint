@@ -60,6 +60,13 @@ else
   echo "Warning: python3-spidev package not found; pip install may be required on this distro."
 fi
 
+GPIOZERO_PKG="$(choose_package python3-gpiozero || true)"
+if [[ -n "$GPIOZERO_PKG" ]]; then
+  OPTIONAL_PACKAGES+=("$GPIOZERO_PKG")
+else
+  echo "Warning: python3-gpiozero not found; HAT buttons will be unavailable."
+fi
+
 apt-get install -y \
   python3 python3-pip python3-dev python3-pil \
   libjpeg-dev zlib1g-dev libopenjp2-7 \
@@ -83,6 +90,7 @@ python3 -m pip install "$EPAPER_REPO_DIR/RaspberryPi_JetsonNano/python" --break-
 
 mkdir -p "$PROJECT_DIR"
 cp "$SCRIPT_DIR/airprint.py" "$PROJECT_DIR/airprint.py"
+cp "$SCRIPT_DIR/web_ui.py" "$PROJECT_DIR/web_ui.py"
 chmod +x "$PROJECT_DIR/airprint.py"
 
 cat >/usr/local/bin/airprint-monitor-mode <<'MONITOR_EOF'
@@ -109,7 +117,7 @@ Type=simple
 User=root
 WorkingDirectory=$PROJECT_DIR
 ExecStartPre=/usr/local/bin/airprint-monitor-mode
-ExecStart=/usr/bin/python3 $PROJECT_DIR/airprint.py --interface wlan1 --refresh 30 --scan-time 12
+ExecStart=/usr/bin/python3 $PROJECT_DIR/airprint.py --interface wlan1 --refresh 30 --scan-time 12 --web-port 5007
 Restart=always
 RestartSec=5
 

@@ -6,7 +6,10 @@ AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waves
 
 - Raspberry Pi 4 or Raspberry Pi 5
 - Waveshare e-paper display (SPI) — supported models:
+  - 2.13" (122x250) — `epd2in13`, `epd2in13_V2`, `epd2in13_V3`, `epd2in13_V4`
   - 2.7" (176x264) — `epd2in7`, `epd2in7_V2`
+  - 2.9" (128x296) — `epd2in9_V2`
+  - 3.7" (280x480) — `epd3in7`
   - 7.5" (800x480) — `epd7in5`, `epd7in5_V2`
 - USB WiFi adapter with monitor mode support (`wlan1`)
 - Built-in Pi WiFi (`wlan0`) for SSH/network access
@@ -73,13 +76,29 @@ Specify your display model explicitly (recommended):
 sudo python3 airprint.py --interface wlan1 --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
 ```
 
-Available `--epd-model` values: `auto` (default), `epd2in7`, `epd2in7_V2`, `epd7in5`, `epd7in5_V2`.
+Available `--epd-model` values: `auto`, `epd2in13`, `epd2in13_V2`, `epd2in13_V3`, `epd2in13_V4`, `epd2in7`, `epd2in7_V2`, `epd2in9_V2`, `epd3in7`, `epd7in5`, `epd7in5_V2`.
 
 Render to a local image file (debug on non-EPD host):
 
 ```bash
 sudo python3 airprint.py --interface wlan1 --output frame.png --refresh 30
 ```
+
+## Web UI
+
+Start with `--web-port` to enable a browser dashboard that mirrors the e-paper display:
+
+```bash
+sudo python3 airprint.py --interface wlan1 --epd-model epd2in7_V2 --web-port 5007 --debug
+```
+
+Then open `http://<pi-ip>:5007` in a browser. The web UI provides:
+
+- **Live e-paper mirror** — see what the display shows without walking to it.
+- **View switching** — toggle between radar, list, and stats views.
+- **Controls** — force scan, flip screen, clear display & exit.
+- **Settings** — adjust refresh interval, scan duration, device TTL, and full-refresh frequency live.
+- **Device table** — full list of detected devices with MAC, RSSI, channel, and type.
 
 ## Buttons (2.7" HAT)
 

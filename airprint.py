@@ -124,6 +124,8 @@ class AirPrint:
         self.redraw_needed = False
         self.current_view = VIEW_RADAR
         self.clear_and_exit = False
+        self.last_frame: Optional[Image.Image] = None
+        self.last_frame_time: float = 0
 
     def stop(self, *_: object) -> None:
         if not self.running:
@@ -237,6 +239,8 @@ class AirPrint:
 
         if self.screen_flipped:
             image = image.rotate(180)
+        self.last_frame = image
+        self.last_frame_time = time.time()
         return image
 
     def render_radar(self, width: int, height: int) -> Image.Image:
@@ -449,14 +453,26 @@ class AirPrint:
 
     # Map of known driver names to (module_name, width, height)
     EPD_DRIVERS = {
+        "epd2in13": ("epd2in13", 122, 250),
+        "epd2in13_V2": ("epd2in13_V2", 122, 250),
+        "epd2in13_V3": ("epd2in13_V3", 122, 250),
+        "epd2in13_V4": ("epd2in13_V4", 122, 250),
         "epd2in7": ("epd2in7", 176, 264),
         "epd2in7_V2": ("epd2in7_V2", 176, 264),
-        "epd7in5_V2": ("epd7in5_V2", 800, 480),
+        "epd2in9_V2": ("epd2in9_V2", 128, 296),
+        "epd3in7": ("epd3in7", 280, 480),
         "epd7in5": ("epd7in5", 800, 480),
+        "epd7in5_V2": ("epd7in5_V2", 800, 480),
     }
 
     # Order for auto-detection: try each driver, first successful init wins
-    AUTO_DETECT_ORDER = ["epd2in7_V2", "epd2in7", "epd7in5_V2", "epd7in5"]
+    AUTO_DETECT_ORDER = [
+        "epd2in13_V4", "epd2in13_V3", "epd2in13_V2", "epd2in13",
+        "epd2in7_V2", "epd2in7",
+        "epd2in9_V2",
+        "epd3in7",
+        "epd7in5_V2", "epd7in5",
+    ]
 
     def create_epd(self) -> object:
         import importlib
@@ -566,11 +582,18 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         help="Save frame to file instead of writing to the EPD",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logs")
+    valid_models = ["auto"] + sorted(AirPrint.EPD_DRIVERS.keys())
     parser.add_argument(
         "--epd-model",
-        choices=("auto", "epd2in7", "epd2in7_V2", "epd7in5_V2", "epd7in5"),
+        choices=valid_models,
         default="auto",
-        help="Waveshare e-paper driver (e.g. epd2in7 for 2.7in, epd7in5_V2 for 7.5in v2)",
+        help="Waveshare e-paper driver (e.g. epd2in7_V2 for 2.7in v2, epd2in13_V4 for 2.13in v4)",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=0,
+        help="Start web UI on this port (e.g. 5007). Disabled by default.",
     )
     return parser.parse_args(list(argv))
 
@@ -590,6 +613,11 @@ def main(argv: Iterable[str]) -> int:
         output_path=args.output,
         epd_model=args.epd_model,
     )
+
+    if args.web_port:
+        from web_ui import start_web_server
+        start_web_server(app, args.web_port)
+
     app.run()
     return 0
 
