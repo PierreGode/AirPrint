@@ -422,12 +422,10 @@ class AirPrint:
 
             draw.ellipse((x - dot_r, y - dot_r, x + dot_r, y + dot_r), fill=0)
 
-        stamp = datetime.now().strftime("%H:%M:%S")
+        stamp = datetime.now().strftime("%H:%M")
+        count = str(len(self.devices))
         draw.text((4, height - 14), stamp, fill=0, font=font)
-        info = f"n={len(self.devices)}"
-        if self.interface2:
-            info += " 2ant"
-        draw.text((width - 90, height - 14), info, fill=0, font=font)
+        draw.text((width - len(count) * 6 - 4, height - 14), count, fill=0, font=font)
         return image
 
     def render_list(self, width: int, height: int) -> Image.Image:
@@ -457,9 +455,10 @@ class AirPrint:
             draw.text((4, y), line, fill=0, font=font)
             y += line_h
 
-        stamp = datetime.now().strftime("%H:%M:%S")
+        stamp = datetime.now().strftime("%H:%M")
+        count = str(len(self.devices))
         draw.text((4, height - 14), stamp, fill=0, font=font)
-        draw.text((width - 80, height - 14), f"n={len(self.devices)}", fill=0, font=font)
+        draw.text((width - len(count) * 6 - 4, height - 14), count, fill=0, font=font)
         return image
 
     def render_stats(self, width: int, height: int) -> Image.Image:
