@@ -54,10 +54,14 @@ sudo ./install.sh
 ## How it works
 
 - Scans WiFi traffic with Scapy in monitor mode.
-- Parses RSSI and channel from 802.11 frames.
+- **Channel hopping** (`--channel-hop`) — cycles through all 2.4 GHz and 5 GHz channels during each scan to discover devices across the full spectrum.
+- Parses RSSI, channel, and SSID from 802.11 beacons and probe requests.
+- **OUI vendor lookup** — identifies device manufacturer (Apple, Samsung, Intel, etc.) from the MAC prefix. Embedded database covers ~95% of consumer devices.
+- **Probe request sniffing** — captures SSIDs that devices are actively searching for, revealing previously connected networks.
+- **RSSI smoothing** — exponential moving average reduces jitter so dots stay stable.
 - Renders a black/white image with Pillow:
   - center dot = Raspberry Pi
-  - surrounding dots = observed transmitters
+  - **squares** = access points, **circles** = client devices
   - stronger RSSI = closer to center
   - recent devices have bigger dots
   - small tail lines show movement trend (approaching / receding)
@@ -78,16 +82,22 @@ This is not true triangulation — WiFi RSSI is too noisy for precise bearings �
 sudo python3 airprint.py --interface wlan1 --refresh 30 --scan-time 12 --debug
 ```
 
+With channel hopping (recommended — sees 3-5x more devices):
+
+```bash
+sudo python3 airprint.py --interface wlan1 --channel-hop --refresh 30 --scan-time 12 --debug
+```
+
 With dual-antenna tracking:
 
 ```bash
-sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --refresh 30 --scan-time 12 --debug
+sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --channel-hop --refresh 30 --scan-time 12 --debug
 ```
 
 Specify your display model explicitly (recommended):
 
 ```bash
-sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
+sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --channel-hop --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
 ```
 
 Available `--epd-model` values: `auto`, `epd2in13`, `epd2in13_V2`, `epd2in13_V3`, `epd2in13_V4`, `epd2in7`, `epd2in7_V2`, `epd2in9_V2`, `epd3in7`, `epd7in5`, `epd7in5_V2`.
@@ -113,7 +123,7 @@ Then open `http://<pi-ip>:5007` in a browser. The web UI provides:
 - **View switching** — toggle between radar, list, and stats views.
 - **Controls** — force scan, flip screen, clear display & exit.
 - **Settings** — adjust refresh interval, scan duration, device TTL, and full-refresh frequency. Changes apply immediately.
-- **Device table** — full list of detected devices sorted by signal strength with MAC, RSSI, channel, type, and trend arrows. In dual-antenna mode, shows per-antenna RSSI values.
+- **Device table** — vendor name, RSSI, channel, SSID/probed networks, and trend arrows. In dual-antenna mode, shows per-antenna RSSI values.
 
 The web UI is enabled by default when installed via `install.sh` (port 5007). No extra dependencies required.
 
@@ -130,9 +140,9 @@ The Waveshare 2.7" e-paper HAT has 4 physical buttons. AirPrint uses them as fol
 
 The three views:
 
-- **Radar** — default circular map with signal-strength rings.
-- **List** — sorted table of MAC addresses, RSSI, and channel. APs are marked with `*`.
-- **Stats** — summary: total devices, AP/client count, RSSI min/avg/max, busiest channels.
+- **Radar** — circular map with signal-strength rings. Squares = APs, circles = clients. Tail lines show RSSI trend.
+- **List** — sorted by signal strength. Shows vendor name, RSSI, channel, and network name (SSID for APs, probed SSID for clients).
+- **Stats** — device counts, RSSI min/avg/max, top vendors, top channels, and a device count sparkline showing activity over time.
 
 Buttons require `gpiozero` (installed by `install.sh`). If the library is not available, AirPrint runs normally without button support.
 

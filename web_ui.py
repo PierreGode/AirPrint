@@ -74,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
                 "last_seen": d.last_seen,
                 "rssi_ant1": d.rssi_ant1,
                 "rssi_ant2": d.rssi_ant2,
+                "vendor": d.vendor,
+                "ssid": d.ssid,
+                "probed_ssids": d.probed_ssids[:5],
             }
             if track:
                 dev_info["trend"] = round(track.rssi_trend, 2)
@@ -511,9 +514,9 @@ async function fetchState() {
     // Update table header based on dual-antenna mode
     var thead = document.getElementById('devHead');
     if (s.dual_antenna) {
-      thead.innerHTML = '<tr><th>MAC</th><th>RSSI</th><th>A1</th><th>A2</th><th>Ch</th><th>Type</th><th>Trend</th></tr>';
+      thead.innerHTML = '<tr><th>Vendor</th><th>RSSI</th><th>A1</th><th>A2</th><th>Ch</th><th>Name</th><th></th></tr>';
     } else {
-      thead.innerHTML = '<tr><th>MAC</th><th>RSSI</th><th>Ch</th><th>Type</th><th>Trend</th></tr>';
+      thead.innerHTML = '<tr><th>Vendor</th><th>RSSI</th><th>Ch</th><th>Name</th><th></th></tr>';
     }
 
     var tbody = document.getElementById('devBody');
@@ -524,24 +527,27 @@ async function fetchState() {
       var trend = d.trend || 0;
       var trendIcon = trend > 0.3 ? '&uarr;' : (trend < -0.3 ? '&darr;' : '&ndash;');
       var trendColor = trend > 0.3 ? '#6a6' : (trend < -0.3 ? '#a66' : '#666');
+      var vendorLabel = d.vendor ? esc(d.vendor) : esc(d.mac.slice(-8));
+      var kindDot = d.kind === 'ap' ? '<span style="color:#6a6">&#9632;</span>' : '<span style="color:#888">&#9679;</span>';
+      var name = d.ssid ? esc(d.ssid) : (d.probed_ssids && d.probed_ssids.length ? '<span style="color:#666">' + esc(d.probed_ssids[0]) + '</span>' : '');
       if (s.dual_antenna) {
         var a1 = d.rssi_ant1 != null ? d.rssi_ant1 : '-';
         var a2 = d.rssi_ant2 != null ? d.rssi_ant2 : '-';
         rows += '<tr>' +
-          '<td>' + esc(d.mac) + '</td>' +
+          '<td>' + kindDot + ' ' + vendorLabel + '</td>' +
           '<td>' + d.rssi + '</td>' +
           '<td>' + a1 + '</td>' +
           '<td>' + a2 + '</td>' +
           '<td>' + d.channel + '</td>' +
-          '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
+          '<td>' + name + '</td>' +
           '<td style="color:' + trendColor + '">' + trendIcon + '</td>' +
           '</tr>';
       } else {
         rows += '<tr>' +
-          '<td>' + esc(d.mac) + '</td>' +
+          '<td>' + kindDot + ' ' + vendorLabel + '</td>' +
           '<td>' + d.rssi + '</td>' +
           '<td>' + d.channel + '</td>' +
-          '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
+          '<td>' + name + '</td>' +
           '<td style="color:' + trendColor + '">' + trendIcon + '</td>' +
           '</tr>';
       }
