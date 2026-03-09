@@ -5,18 +5,27 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import logging
 import math
 import signal
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
+
 from PIL import Image, ImageDraw, ImageFont
 from scapy.all import Dot11, Dot11Beacon, Dot11Elt, RadioTap, sniff  # type: ignore
+
+
+VIEW_RADAR = 0
+VIEW_LIST = 1
+VIEW_STATS = 2
+VIEW_COUNT = 3
 
 
 @dataclass
@@ -28,6 +37,63 @@ class DeviceObservation:
     rssi: int
     last_seen: float
     kind: str
+
+
+class ButtonListener:
+    """Listen to the 4 GPIO buttons on the Waveshare 2.7" e-paper HAT."""
+
+    KEY_PINS = {
+        "key1": 5,
+        "key2": 6,
+        "key3": 13,
+        "key4": 19,
+    }
+
+    def __init__(self, app: AirPrint) -> None:
+        self.app = app
+        self._buttons: list[object] = []
+
+    def start(self) -> None:
+        try:
+            from gpiozero import Button  # type: ignore
+        except ImportError:
+            logging.warning("gpiozero not available — buttons disabled")
+            return
+
+        handlers = {
+            "key1": self._on_key1,
+            "key2": self._on_key2,
+            "key3": self._on_key3,
+            "key4": self._on_key4,
+        }
+
+        for name, pin in self.KEY_PINS.items():
+            try:
+                btn = Button(pin, pull_up=True, bounce_time=0.3)
+                btn.when_pressed = handlers[name]
+                self._buttons.append(btn)
+                logging.debug("Button %s (GPIO %d) registered", name, pin)
+            except Exception as exc:
+                logging.warning("Failed to register button %s: %s", name, exc)
+
+    def _on_key1(self) -> None:
+        logging.info("KEY1: Force scan")
+        self.app.force_scan = True
+
+    def _on_key2(self) -> None:
+        logging.info("KEY2: Flip screen")
+        self.app.screen_flipped = not self.app.screen_flipped
+        self.app.redraw_needed = True
+
+    def _on_key3(self) -> None:
+        self.app.current_view = (self.app.current_view + 1) % VIEW_COUNT
+        logging.info("KEY3: View -> %s", ["radar", "list", "stats"][self.app.current_view])
+        self.app.redraw_needed = True
+
+    def _on_key4(self) -> None:
+        logging.info("KEY4: Clear display & exit")
+        self.app.clear_and_exit = True
+        self.app.running = False
 
 
 class AirPrint:
@@ -49,7 +115,15 @@ class AirPrint:
         self.devices: Dict[str, DeviceObservation] = {}
         self.running = True
         self.epd: Optional[object] = None
-        self._force_quit = False
+        self._partial_supported = False
+        self._frame_count = 0
+        self._full_refresh_interval = 10  # full refresh every N frames to clear ghosting
+        # Button state
+        self.force_scan = False
+        self.screen_flipped = False
+        self.redraw_needed = False
+        self.current_view = VIEW_RADAR
+        self.clear_and_exit = False
 
     def stop(self, *_: object) -> None:
         if not self.running:
@@ -150,9 +224,22 @@ class AirPrint:
         for mac in stale:
             del self.devices[mac]
 
-    def render_image(self, width: int = 0, height: int = 0) -> Image.Image:
-        if width == 0 or height == 0:
-            width, height = self.get_display_size()
+    # ---- View renderers ----
+
+    def render_frame(self) -> Image.Image:
+        width, height = self.get_display_size()
+        if self.current_view == VIEW_LIST:
+            image = self.render_list(width, height)
+        elif self.current_view == VIEW_STATS:
+            image = self.render_stats(width, height)
+        else:
+            image = self.render_radar(width, height)
+
+        if self.screen_flipped:
+            image = image.rotate(180)
+        return image
+
+    def render_radar(self, width: int, height: int) -> Image.Image:
         image = Image.new("1", (width, height), 255)
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
@@ -172,9 +259,73 @@ class AirPrint:
             radius = self.recency_radius(now - device.last_seen)
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=0)
 
-        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        draw.text((12, height - 28), stamp, fill=0, font=font)
-        draw.text((width - 150, height - 28), f"devices: {len(self.devices)}", fill=0, font=font)
+        stamp = datetime.now().strftime("%H:%M:%S")
+        draw.text((4, height - 14), stamp, fill=0, font=font)
+        draw.text((width - 80, height - 14), f"n={len(self.devices)}", fill=0, font=font)
+        return image
+
+    def render_list(self, width: int, height: int) -> Image.Image:
+        image = Image.new("1", (width, height), 255)
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+
+        draw.text((4, 2), "MAC              RSSI Ch", fill=0, font=font)
+        draw.line((0, 14, width, 14), fill=0)
+
+        sorted_devs = sorted(self.devices.values(), key=lambda d: d.rssi, reverse=True)
+        y = 18
+        line_h = 12
+        max_lines = (height - 32) // line_h
+        for dev in sorted_devs[:max_lines]:
+            short_mac = dev.mac[-8:]
+            kind_marker = "*" if dev.kind == "ap" else " "
+            line = f"{short_mac}{kind_marker} {dev.rssi:>4}  {dev.channel:>2}"
+            draw.text((4, y), line, fill=0, font=font)
+            y += line_h
+
+        stamp = datetime.now().strftime("%H:%M:%S")
+        draw.text((4, height - 14), stamp, fill=0, font=font)
+        draw.text((width - 80, height - 14), f"n={len(self.devices)}", fill=0, font=font)
+        return image
+
+    def render_stats(self, width: int, height: int) -> Image.Image:
+        image = Image.new("1", (width, height), 255)
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+
+        total = len(self.devices)
+        aps = sum(1 for d in self.devices.values() if d.kind == "ap")
+        clients = total - aps
+
+        channels: Dict[int, int] = {}
+        rssi_values: list[int] = []
+        for dev in self.devices.values():
+            channels[dev.channel] = channels.get(dev.channel, 0) + 1
+            rssi_values.append(dev.rssi)
+
+        y = 4
+        line_h = 14
+        draw.text((4, y), f"Total:   {total}", fill=0, font=font); y += line_h
+        draw.text((4, y), f"APs:     {aps}", fill=0, font=font); y += line_h
+        draw.text((4, y), f"Clients: {clients}", fill=0, font=font); y += line_h
+
+        if rssi_values:
+            avg_rssi = sum(rssi_values) // len(rssi_values)
+            best = max(rssi_values)
+            worst = min(rssi_values)
+            draw.text((4, y), f"RSSI avg:{avg_rssi} dBm", fill=0, font=font); y += line_h
+            draw.text((4, y), f"  best:  {best} dBm", fill=0, font=font); y += line_h
+            draw.text((4, y), f"  worst: {worst} dBm", fill=0, font=font); y += line_h
+
+        y += 4
+        if channels:
+            top = sorted(channels.items(), key=lambda kv: kv[1], reverse=True)[:5]
+            draw.text((4, y), "Top channels:", fill=0, font=font); y += line_h
+            for ch, count in top:
+                draw.text((4, y), f"  ch {ch:>3}: {count}", fill=0, font=font); y += line_h
+
+        stamp = datetime.now().strftime("%H:%M:%S")
+        draw.text((4, height - 14), stamp, fill=0, font=font)
         return image
 
     @staticmethod
@@ -215,10 +366,9 @@ class AirPrint:
         return int(h, 16) / 0xFFFFFFFF
 
     def device_angle(self, device: DeviceObservation) -> float:
-        # Channel lays out the major sector; MAC hash spreads points in-sector.
-        base = (device.channel % 14) / 14
-        jitter = self.hash_to_unit(device.mac) * (1 / 14)
-        return (base + jitter) * 2 * math.pi
+        # Spread devices evenly around the full circle using MAC hash.
+        # Each device gets a stable, unique angle based on its MAC address.
+        return self.hash_to_unit(device.mac) * 2 * math.pi
 
     def get_display_size(self) -> tuple[int, int]:
         """Return (width, height) for the active EPD driver."""
@@ -231,6 +381,56 @@ class AirPrint:
             return (w, h)
         return (800, 480)
 
+    def _init_epd(self) -> None:
+        """Create the EPD and do a full-refresh init + clear on first use."""
+        self.epd = self.create_epd()
+        self.epd.init()
+        self.epd.Clear(0xFF)
+        # Check if driver supports partial refresh
+        self._partial_supported = (
+            hasattr(self.epd, "display_Partial")
+            or hasattr(self.epd, "displayPartial")
+        )
+        if self._partial_supported:
+            # Switch to partial-update mode
+            if hasattr(self.epd, "PART_UPDATE"):
+                self.epd.init(self.epd.PART_UPDATE)
+            elif hasattr(self.epd, "lut_partial_update"):
+                self.epd.init(self.epd.lut_partial_update)
+            logging.debug("Partial refresh enabled")
+        self._frame_count = 0
+
+    def _display_partial(self, image: Image.Image) -> None:
+        """Send image using partial refresh (no full-screen flash)."""
+        buf = self.epd.getbuffer(image)
+        w, h = self.get_display_size()
+        if hasattr(self.epd, "display_Partial"):
+            sig = inspect.signature(self.epd.display_Partial)
+            if len(sig.parameters) >= 5:
+                self.epd.display_Partial(buf, 0, 0, w, h)
+            else:
+                self.epd.display_Partial(buf)
+        elif hasattr(self.epd, "displayPartial"):
+            self.epd.displayPartial(buf)
+
+    def _display_full(self, image: Image.Image) -> None:
+        """Do a full refresh (clears ghosting)."""
+        # Re-init for full update
+        if hasattr(self.epd, "FULL_UPDATE"):
+            self.epd.init(self.epd.FULL_UPDATE)
+        elif hasattr(self.epd, "lut_full_update"):
+            self.epd.init(self.epd.lut_full_update)
+        else:
+            self.epd.init()
+        self.epd.display(self.epd.getbuffer(image))
+        # Switch back to partial mode
+        if self._partial_supported:
+            if hasattr(self.epd, "PART_UPDATE"):
+                self.epd.init(self.epd.PART_UPDATE)
+            elif hasattr(self.epd, "lut_partial_update"):
+                self.epd.init(self.epd.lut_partial_update)
+        logging.debug("Full refresh (ghosting cleanup)")
+
     def display_image(self, image: Image.Image) -> None:
         if self.output_path:
             image.save(self.output_path)
@@ -238,10 +438,14 @@ class AirPrint:
             return
 
         if self.epd is None:
-            self.epd = self.create_epd()
-            self.epd.init()
+            self._init_epd()
 
-        self.epd.display(self.epd.getbuffer(image))
+        self._frame_count += 1
+
+        if self._partial_supported and self._frame_count % self._full_refresh_interval != 1:
+            self._display_partial(image)
+        else:
+            self._display_full(image)
 
     # Map of known driver names to (module_name, width, height)
     EPD_DRIVERS = {
@@ -280,9 +484,25 @@ class AirPrint:
                 continue
         raise RuntimeError("No compatible e-paper driver found")
 
+    def clear_display(self) -> None:
+        if self.epd is None:
+            return
+        try:
+            if hasattr(self.epd, "FULL_UPDATE"):
+                self.epd.init(self.epd.FULL_UPDATE)
+            else:
+                self.epd.init()
+            self.epd.Clear(0xFF)
+            logging.info("Display cleared")
+        except Exception as exc:
+            logging.debug("Failed to clear display: %s", exc)
+
     def shutdown_display(self) -> None:
         if self.epd is None:
             return
+
+        if self.clear_and_exit:
+            self.clear_display()
 
         try:
             self.epd.sleep()
@@ -293,24 +513,42 @@ class AirPrint:
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
 
+        buttons = ButtonListener(self)
+        buttons.start()
+
         try:
             while self.running:
                 started = time.time()
                 try:
                     observed = self.scan_wifi()
                     self.merge_devices(observed)
-                    frame = self.render_image()
+                    frame = self.render_frame()
                     self.display_image(frame)
                     logging.info("Frame rendered with %d active devices", len(self.devices))
                 except Exception as exc:
                     logging.exception("AirPrint cycle failed: %s", exc)
 
+                self.force_scan = False
+                self.redraw_needed = False
+
                 elapsed = time.time() - started
                 sleep_seconds = max(1, self.refresh_seconds - int(elapsed))
-                # Sleep in short intervals so Ctrl+C is responsive
+                # Sleep in short intervals; wake early on button press
                 end = time.time() + sleep_seconds
                 while self.running and time.time() < end:
+                    if self.force_scan or self.redraw_needed:
+                        break
                     time.sleep(0.5)
+
+                # If only a redraw was requested (flip/view change), skip the scan
+                if self.redraw_needed and not self.force_scan and self.running:
+                    try:
+                        frame = self.render_frame()
+                        self.display_image(frame)
+                        logging.info("Redraw (view change / flip)")
+                    except Exception as exc:
+                        logging.exception("Redraw failed: %s", exc)
+                    self.redraw_needed = False
         finally:
             self.shutdown_display()
 

@@ -1,15 +1,17 @@
 # AirPrint
 
-AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waveshare 7.5" e-paper display.
+AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waveshare e-paper display.
 
 ## Hardware
 
 - Raspberry Pi 4 or Raspberry Pi 5
-- Waveshare 7.5" e-paper display (SPI)
-- 2x USB WiFi adapters with monitor mode support (`wlan1`, `wlan2`)
+- Waveshare e-paper display (SPI) — supported models:
+  - 2.7" (176x264) — `epd2in7`, `epd2in7_V2`
+  - 7.5" (800x480) — `epd7in5`, `epd7in5_V2`
+- USB WiFi adapter with monitor mode support (`wlan1`)
 - Built-in Pi WiFi (`wlan0`) for SSH/network access
 
-## Wiring (Waveshare 7.5" HAT → Raspberry Pi 40-pin)
+## Wiring (Waveshare e-paper HAT → Raspberry Pi 40-pin)
 
 | Waveshare Pin | Pi Pin |
 |---|---|
@@ -53,8 +55,9 @@ sudo ./install.sh
   - center dot = Raspberry Pi
   - surrounding dots = observed transmitters
   - stronger RSSI = closer to center
-  - channel influences angular placement
+  - each device gets a stable angle based on its MAC address
   - recent devices have bigger dots
+- Automatically sizes the image to match the display resolution.
 - Refreshes every 30 seconds.
 - Pushes frame to Waveshare EPD.
 
@@ -64,11 +67,38 @@ sudo ./install.sh
 sudo python3 airprint.py --interface wlan1 --refresh 30 --scan-time 12 --debug
 ```
 
+Specify your display model explicitly (recommended):
+
+```bash
+sudo python3 airprint.py --interface wlan1 --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
+```
+
+Available `--epd-model` values: `auto` (default), `epd2in7`, `epd2in7_V2`, `epd7in5`, `epd7in5_V2`.
+
 Render to a local image file (debug on non-EPD host):
 
 ```bash
 sudo python3 airprint.py --interface wlan1 --output frame.png --refresh 30
 ```
+
+## Buttons (2.7" HAT)
+
+The Waveshare 2.7" e-paper HAT has 4 physical buttons. AirPrint uses them as follows:
+
+| Button | GPIO | Function |
+|--------|------|----------|
+| KEY1 | 5 | Force an immediate scan (skips the wait timer) |
+| KEY2 | 6 | Flip the screen 180 degrees |
+| KEY3 | 13 | Cycle view: radar → device list → stats → radar |
+| KEY4 | 19 | Clear the display and exit cleanly |
+
+The three views:
+
+- **Radar** — default circular map with signal-strength rings.
+- **List** — sorted table of MAC addresses, RSSI, and channel. APs are marked with `*`.
+- **Stats** — summary: total devices, AP/client count, RSSI min/avg/max, busiest channels.
+
+Buttons require `gpiozero` (installed by `install.sh`). If the library is not available, AirPrint runs normally without button support.
 
 ## Service management
 
@@ -81,5 +111,7 @@ sudo systemctl restart airprint.service
 ## Notes
 
 - Packet capture requires root.
+- WiFi cannot detect the physical direction of devices — angular placement on the radar is a stable visual spread, not a real bearing.
 - If your adapter names differ, edit `/etc/systemd/system/airprint.service` and `/usr/local/bin/airprint-monitor-mode`.
 - E-paper updates are intentionally slow and should not be refreshed too frequently.
+- Press Ctrl+C once to stop gracefully, twice to force quit.
