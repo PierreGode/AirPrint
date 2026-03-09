@@ -65,16 +65,24 @@ class Handler(BaseHTTPRequestHandler):
         w, h = app.get_display_size()
         devices = []
         for d in app.devices.values():
-            devices.append({
+            track = app.tracks.get(d.mac)
+            dev_info = {
                 "mac": d.mac,
                 "rssi": d.rssi,
                 "channel": d.channel,
                 "kind": d.kind,
                 "last_seen": d.last_seen,
-            })
+                "rssi_ant1": d.rssi_ant1,
+                "rssi_ant2": d.rssi_ant2,
+            }
+            if track:
+                dev_info["trend"] = round(track.rssi_trend, 2)
+                dev_info["confidence"] = round(track.angle_confidence, 2)
+            devices.append(dev_info)
         state = {
             "image": _frame_to_base64(app),
             "epd_model": app.epd_model,
+            "dual_antenna": app.interface2 is not None,
             "display_size": [w, h],
             "supported_models": sorted(app.EPD_DRIVERS.keys()),
             "current_view": VIEW_NAMES[app.current_view],
@@ -387,7 +395,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <div class="card">
       <h2>Devices (<span id="devCount">0</span>)</h2>
       <table class="device-table">
-        <thead><tr><th>MAC</th><th>RSSI</th><th>Ch</th><th>Type</th></tr></thead>
+        <thead id="devHead"><tr><th>MAC</th><th>RSSI</th><th>Ch</th><th>Type</th></tr></thead>
         <tbody id="devBody"></tbody>
       </table>
     </div>
@@ -500,17 +508,43 @@ async function fetchState() {
     }
 
     // Device table — escaped
+    // Update table header based on dual-antenna mode
+    var thead = document.getElementById('devHead');
+    if (s.dual_antenna) {
+      thead.innerHTML = '<tr><th>MAC</th><th>RSSI</th><th>A1</th><th>A2</th><th>Ch</th><th>Type</th><th>Trend</th></tr>';
+    } else {
+      thead.innerHTML = '<tr><th>MAC</th><th>RSSI</th><th>Ch</th><th>Type</th><th>Trend</th></tr>';
+    }
+
     var tbody = document.getElementById('devBody');
     var devs = s.devices.slice().sort(function(a, b) { return b.rssi - a.rssi; });
     var rows = '';
     for (var k = 0; k < devs.length; k++) {
       var d = devs[k];
-      rows += '<tr>' +
-        '<td>' + esc(d.mac) + '</td>' +
-        '<td>' + d.rssi + '</td>' +
-        '<td>' + d.channel + '</td>' +
-        '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
-        '</tr>';
+      var trend = d.trend || 0;
+      var trendIcon = trend > 0.3 ? '&uarr;' : (trend < -0.3 ? '&darr;' : '&ndash;');
+      var trendColor = trend > 0.3 ? '#6a6' : (trend < -0.3 ? '#a66' : '#666');
+      if (s.dual_antenna) {
+        var a1 = d.rssi_ant1 != null ? d.rssi_ant1 : '-';
+        var a2 = d.rssi_ant2 != null ? d.rssi_ant2 : '-';
+        rows += '<tr>' +
+          '<td>' + esc(d.mac) + '</td>' +
+          '<td>' + d.rssi + '</td>' +
+          '<td>' + a1 + '</td>' +
+          '<td>' + a2 + '</td>' +
+          '<td>' + d.channel + '</td>' +
+          '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
+          '<td style="color:' + trendColor + '">' + trendIcon + '</td>' +
+          '</tr>';
+      } else {
+        rows += '<tr>' +
+          '<td>' + esc(d.mac) + '</td>' +
+          '<td>' + d.rssi + '</td>' +
+          '<td>' + d.channel + '</td>' +
+          '<td class="kind-' + esc(d.kind) + '">' + esc(d.kind) + '</td>' +
+          '<td style="color:' + trendColor + '">' + trendIcon + '</td>' +
+          '</tr>';
+      }
     }
     tbody.innerHTML = rows;
   } catch (e) {

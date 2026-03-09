@@ -12,6 +12,7 @@ AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waves
   - 3.7" (280x480) — `epd3in7`
   - 7.5" (800x480) — `epd7in5`, `epd7in5_V2`
 - USB WiFi adapter with monitor mode support (`wlan1`)
+- Optional: second USB WiFi adapter (`wlan2`) for dual-antenna tracking
 - Built-in Pi WiFi (`wlan0`) for SSH/network access
 
 ## Wiring (Waveshare e-paper HAT → Raspberry Pi 40-pin)
@@ -52,18 +53,24 @@ sudo ./install.sh
 
 ## How it works
 
-- Scans WiFi traffic on `wlan1` with Scapy in monitor mode.
+- Scans WiFi traffic with Scapy in monitor mode.
 - Parses RSSI and channel from 802.11 frames.
 - Renders a black/white image with Pillow:
   - center dot = Raspberry Pi
   - surrounding dots = observed transmitters
   - stronger RSSI = closer to center
-  - each device gets a stable angle based on its MAC address
   - recent devices have bigger dots
+  - small tail lines show movement trend (approaching / receding)
 - Automatically sizes the image to match the display resolution.
 - Uses partial refresh (no full-screen flash) on supported displays, with periodic full refresh to clear ghosting.
 - Refreshes every 30 seconds.
 - Pushes frame to Waveshare EPD.
+
+### Dual-antenna tracking
+
+With two WiFi adapters in monitor mode (`--interface2`), AirPrint scans both simultaneously and compares RSSI per device to estimate a left/right bias. As you walk around with the device, RSSI trends over time refine the angular placement of each device on the radar. The longer you move, the more accurate the positions become.
+
+This is not true triangulation — WiFi RSSI is too noisy for precise bearings — but it gives a meaningful spatial spread that improves over time instead of random placement.
 
 ## Run manually
 
@@ -71,10 +78,16 @@ sudo ./install.sh
 sudo python3 airprint.py --interface wlan1 --refresh 30 --scan-time 12 --debug
 ```
 
+With dual-antenna tracking:
+
+```bash
+sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --refresh 30 --scan-time 12 --debug
+```
+
 Specify your display model explicitly (recommended):
 
 ```bash
-sudo python3 airprint.py --interface wlan1 --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
+sudo python3 airprint.py --interface wlan1 --interface2 wlan2 --epd-model epd2in7_V2 --refresh 30 --scan-time 12 --debug
 ```
 
 Available `--epd-model` values: `auto`, `epd2in13`, `epd2in13_V2`, `epd2in13_V3`, `epd2in13_V4`, `epd2in7`, `epd2in7_V2`, `epd2in9_V2`, `epd3in7`, `epd7in5`, `epd7in5_V2`.
@@ -100,7 +113,7 @@ Then open `http://<pi-ip>:5007` in a browser. The web UI provides:
 - **View switching** — toggle between radar, list, and stats views.
 - **Controls** — force scan, flip screen, clear display & exit.
 - **Settings** — adjust refresh interval, scan duration, device TTL, and full-refresh frequency. Changes apply immediately.
-- **Device table** — full list of detected devices sorted by signal strength with MAC, RSSI, channel, and type.
+- **Device table** — full list of detected devices sorted by signal strength with MAC, RSSI, channel, type, and trend arrows. In dual-antenna mode, shows per-antenna RSSI values.
 
 The web UI is enabled by default when installed via `install.sh` (port 5007). No extra dependencies required.
 
@@ -134,7 +147,7 @@ sudo systemctl restart airprint.service
 ## Notes
 
 - Packet capture requires root.
-- WiFi cannot detect the physical direction of devices — angular placement on the radar is a stable visual spread, not a real bearing.
+- Angular placement starts as a visual spread based on MAC hash. With dual-antenna mode and movement, angles refine over time but are still approximate — this is not a precision direction finder.
 - If your adapter names differ, edit `/etc/systemd/system/airprint.service` and `/usr/local/bin/airprint-monitor-mode`.
 - E-paper updates are intentionally slow and should not be refreshed too frequently.
 - Press Ctrl+C once to stop gracefully, twice to force quit.
