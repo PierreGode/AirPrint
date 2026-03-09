@@ -4,7 +4,7 @@ AirPrint turns nearby WiFi activity into a minimalist radar-style map on a Waves
 
 ## Hardware
 
-- Raspberry Pi 4 or Raspberry Pi 5
+- Raspberry Pi Zero 2 W, Raspberry Pi 4, or Raspberry Pi 5
 - Waveshare e-paper display (SPI) — supported models:
   - 2.13" (122x250) — `epd2in13`, `epd2in13_V2`, `epd2in13_V3`, `epd2in13_V4`
   - 2.7" (176x264) — `epd2in7`, `epd2in7_V2`
