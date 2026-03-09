@@ -289,8 +289,19 @@ OUI_TABLE: Dict[str, str] = {
 }
 
 
+def _is_random_mac(mac: str) -> bool:
+    """Check if MAC is locally administered (randomized)."""
+    try:
+        first_byte = int(mac[:2], 16)
+        return bool(first_byte & 0x02)
+    except (ValueError, IndexError):
+        return False
+
+
 def oui_vendor(mac: str) -> str:
     """Return short vendor name from MAC OUI prefix, or '' if unknown."""
+    if _is_random_mac(mac):
+        return "Random"
     prefix = mac[:8].lower()
     return OUI_TABLE.get(prefix, "")
 
