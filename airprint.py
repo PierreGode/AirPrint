@@ -49,8 +49,12 @@ class AirPrint:
         self.devices: Dict[str, DeviceObservation] = {}
         self.running = True
         self.epd: Optional[object] = None
+        self._force_quit = False
 
     def stop(self, *_: object) -> None:
+        if not self.running:
+            logging.info("Force quit")
+            sys.exit(1)
         logging.info("Shutting down AirPrint loop")
         self.running = False
 
@@ -146,7 +150,9 @@ class AirPrint:
         for mac in stale:
             del self.devices[mac]
 
-    def render_image(self, width: int = 800, height: int = 480) -> Image.Image:
+    def render_image(self, width: int = 0, height: int = 0) -> Image.Image:
+        if width == 0 or height == 0:
+            width, height = self.get_display_size()
         image = Image.new("1", (width, height), 255)
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
@@ -214,6 +220,17 @@ class AirPrint:
         jitter = self.hash_to_unit(device.mac) * (1 / 14)
         return (base + jitter) * 2 * math.pi
 
+    def get_display_size(self) -> tuple[int, int]:
+        """Return (width, height) for the active EPD driver."""
+        if self.epd is not None:
+            w = getattr(self.epd, "width", 800)
+            h = getattr(self.epd, "height", 480)
+            return (w, h)
+        if self.epd_model in self.EPD_DRIVERS:
+            _, w, h = self.EPD_DRIVERS[self.epd_model]
+            return (w, h)
+        return (800, 480)
+
     def display_image(self, image: Image.Image) -> None:
         if self.output_path:
             image.save(self.output_path)
@@ -226,29 +243,42 @@ class AirPrint:
 
         self.epd.display(self.epd.getbuffer(image))
 
+    # Map of known driver names to (module_name, width, height)
+    EPD_DRIVERS = {
+        "epd2in7": ("epd2in7", 176, 264),
+        "epd2in7_V2": ("epd2in7_V2", 176, 264),
+        "epd7in5_V2": ("epd7in5_V2", 800, 480),
+        "epd7in5": ("epd7in5", 800, 480),
+    }
+
+    # Order for auto-detection: try each driver, first successful init wins
+    AUTO_DETECT_ORDER = ["epd2in7_V2", "epd2in7", "epd7in5_V2", "epd7in5"]
+
     def create_epd(self) -> object:
-        if self.epd_model == "v2":
-            from waveshare_epd import epd7in5_V2  # type: ignore
+        import importlib
 
-            logging.debug("Using e-paper driver epd7in5_V2")
-            return epd7in5_V2.EPD()
+        if self.epd_model != "auto":
+            if self.epd_model not in self.EPD_DRIVERS:
+                raise RuntimeError(f"Unknown EPD model: {self.epd_model}")
+            module_name = self.EPD_DRIVERS[self.epd_model][0]
+            mod = importlib.import_module(f"waveshare_epd.{module_name}")
+            logging.debug("Using e-paper driver %s", module_name)
+            return mod.EPD()
 
-        if self.epd_model == "v1":
-            from waveshare_epd import epd7in5  # type: ignore
-
-            logging.debug("Using e-paper driver epd7in5")
-            return epd7in5.EPD()
-
-        try:
-            from waveshare_epd import epd7in5_V2  # type: ignore
-
-            logging.debug("Auto-selected e-paper driver epd7in5_V2")
-            return epd7in5_V2.EPD()
-        except Exception:
-            from waveshare_epd import epd7in5  # type: ignore
-
-            logging.debug("Auto-selected e-paper driver epd7in5")
-            return epd7in5.EPD()
+        # Auto-detect: try drivers in order
+        for name in self.AUTO_DETECT_ORDER:
+            module_name = self.EPD_DRIVERS[name][0]
+            try:
+                mod = importlib.import_module(f"waveshare_epd.{module_name}")
+                epd = mod.EPD()
+                epd.init()
+                epd.sleep()
+                logging.debug("Auto-selected e-paper driver %s", module_name)
+                return epd
+            except Exception:
+                logging.debug("Driver %s failed, trying next", module_name)
+                continue
+        raise RuntimeError("No compatible e-paper driver found")
 
     def shutdown_display(self) -> None:
         if self.epd is None:
@@ -277,7 +307,10 @@ class AirPrint:
 
                 elapsed = time.time() - started
                 sleep_seconds = max(1, self.refresh_seconds - int(elapsed))
-                time.sleep(sleep_seconds)
+                # Sleep in short intervals so Ctrl+C is responsive
+                end = time.time() + sleep_seconds
+                while self.running and time.time() < end:
+                    time.sleep(0.5)
         finally:
             self.shutdown_display()
 
@@ -297,9 +330,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--debug", action="store_true", help="Enable debug logs")
     parser.add_argument(
         "--epd-model",
-        choices=("auto", "v2", "v1"),
+        choices=("auto", "epd2in7", "epd2in7_V2", "epd7in5_V2", "epd7in5"),
         default="auto",
-        help="Waveshare 7.5in driver selection; use v1 for older hardware",
+        help="Waveshare e-paper driver (e.g. epd2in7 for 2.7in, epd7in5_V2 for 7.5in v2)",
     )
     return parser.parse_args(list(argv))
 
